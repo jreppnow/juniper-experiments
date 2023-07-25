@@ -1,0 +1,43 @@
+type Skill {
+    id: ID!
+    description: String!
+}
+
+type Employee {
+    id: ID!
+    firstName: String, 
+    lastName: String!
+    skills: [Skill!]!
+}
+
+enum State {
+    PLANNING
+    ONGOING
+    FINISHED
+}
+
+type Project {
+    id: ID!
+    short: String!, 
+    description: String
+    state: State!
+    skillsRequired: [Skill!]!
+    responsible: Employee!
+    assigned: [Employee!]!
+} 
+
+type Mutation {
+    newEmployee(firstName: String, lastName: String!): Employee 
+    newSkill(description: String!): Skill 
+    addSkill(employee: ID!, skill: ID!): Employee
+    newProject(short: String!, description: String, responsible: ID!): Project
+    assign(employee: ID!, project: ID!): Project
+}
+
+type Query {
+    skills: [Skill!]!
+    employees: [Employee!]!
+    projects: [Project!]!
+} 
+
+
