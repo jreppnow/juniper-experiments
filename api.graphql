@@ -5,7 +5,7 @@ type Skill {
 
 type Employee {
     id: ID!
-    firstName: String, 
+    firstName: String 
     lastName: String!
     skills: [Skill!]!
 }
@@ -18,7 +18,7 @@ enum State {
 
 type Project {
     id: ID!
-    short: String!, 
+    short: String! 
     description: String
     state: State!
     skillsRequired: [Skill!]!
