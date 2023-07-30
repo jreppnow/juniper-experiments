@@ -1,8 +1,8 @@
 use std::error::Error;
 
 use juniper::{
-    execute_sync, futures::stream::Empty, graphql_object, EmptyMutation, EmptySubscription,
-    FieldResult, GraphQLEnum, GraphQLObject, RootNode, Variables, ID,
+    execute_sync, graphql_object, EmptyMutation, EmptySubscription, GraphQLEnum, GraphQLObject,
+    RootNode, Variables, ID,
 };
 
 #[derive(GraphQLObject)]
@@ -19,7 +19,7 @@ struct Employee {
     skills: Vec<Skill>,
 }
 
-#[derive(GraphQLEnum)]
+#[derive(GraphQLEnum, Clone, Copy)]
 enum State {
     Planning,
     Ongoing,
@@ -29,7 +29,7 @@ enum State {
 #[derive(GraphQLObject)]
 struct Project {
     id: ID,
-    short: Option<String>,
+    short: String,
     description: Option<String>,
     state: State,
     skills_required: Vec<Skill>,
@@ -37,6 +37,7 @@ struct Project {
     assigned: Vec<Employee>,
 }
 
+#[derive(Clone)]
 struct InternalEmployee {
     first_name: Option<String>,
     last_name: String,
@@ -44,11 +45,11 @@ struct InternalEmployee {
 }
 
 struct InternalProject {
-    short: Option<String>,
+    short: String,
     description: Option<String>,
     state: State,
     skills_required: Vec<usize>,
-    responsible: Employee,
+    responsible: usize,
     assigned: Vec<usize>,
 }
 
@@ -56,6 +57,36 @@ struct Context {
     skills: Vec<String>,
     employees: Vec<InternalEmployee>,
     projects: Vec<InternalProject>,
+}
+
+impl Context {
+    fn resolve_skill(&self, id: usize) -> Option<Skill> {
+        Some(Skill {
+            id: id.to_string().into(),
+            description: self.skills.get(id)?.clone(),
+        })
+    }
+
+    fn resolve_employee(&self, id: usize) -> Option<Employee> {
+        let InternalEmployee {
+            first_name,
+            last_name,
+            skills,
+        } = self.employees.get(id)?.clone();
+
+        Some(Employee {
+            id: id.to_string().into(),
+            first_name,
+            last_name,
+            skills: skills
+                .iter()
+                .map(|skill_id| {
+                    self.resolve_skill(*skill_id)
+                        .expect("We take care that we keep all IDs valid!")
+                })
+                .collect(),
+        })
+    }
 }
 
 impl juniper::Context for Context {}
@@ -76,13 +107,85 @@ impl Queries {
             })
             .collect()
     }
+
+    fn employees(context: &Context) -> Vec<Employee> {
+        context
+            .employees
+            .iter()
+            .enumerate()
+            .map(|(index, employee)| Employee {
+                id: index.to_string().into(),
+                first_name: employee.first_name.clone(),
+                last_name: employee.last_name.clone(),
+                skills: employee
+                    .skills
+                    .iter()
+                    .map(|skill_id| {
+                        let skill = &context.skills[*skill_id];
+                        Skill {
+                            id: skill_id.to_string().into(),
+                            description: skill.clone(),
+                        }
+                    })
+                    .collect(),
+            })
+            .collect()
+    }
+
+    fn projects(context: &Context) -> Vec<Project> {
+        context
+            .projects
+            .iter()
+            .enumerate()
+            .map(|(index, project)| Project {
+                id: index.to_string().into(),
+                short: project.short.clone(),
+                description: project.description.clone(),
+                state: project.state,
+                skills_required: project
+                    .skills_required
+                    .iter()
+                    .map(|skill_id| {
+                        let skill = &context.skills[*skill_id];
+                        Skill {
+                            id: skill_id.to_string().into(),
+                            description: skill.clone(),
+                        }
+                    })
+                    .collect(),
+                responsible: context
+                    .resolve_employee(project.responsible)
+                    .expect("We take care to only give out valid indices!"),
+                assigned: project
+                    .assigned
+                    .iter()
+                    .map(|employee_id| {
+                        context
+                            .resolve_employee(*employee_id)
+                            .expect("We take to only give out valid indices!")
+                    })
+                    .collect(),
+            })
+            .collect()
+    }
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
     let context = Context {
         skills: vec!["Dancing".to_owned(), "Singing".to_owned()],
-        employees: vec![],
-        projects: vec![],
+        employees: vec![InternalEmployee {
+            first_name: Some("Michael".to_owned()),
+            last_name: "Jackson".to_owned(),
+            skills: vec![0, 1],
+        }],
+        projects: vec![InternalProject {
+            short: "One of the greatest pop songs of all time!".to_owned(),
+            description: None,
+            state: State::Finished,
+            skills_required: vec![0, 1],
+            responsible: 0,
+            assigned: vec![],
+        }],
     };
 
     let schema: &'static _ = Box::leak(Box::new(RootNode::new(
@@ -93,9 +196,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!(
         "{:?}",
         execute_sync(
-            "query { skills { id, description } }",
+            "query { projects { id, description, responsible { lastName, skills { description } }, assigned { lastName }, short } }",
             None,
-            &schema,
+            schema,
             &Variables::new(),
             &context,
         )?,
